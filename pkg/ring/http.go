@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	strconv "strconv"
 	"strings"
 	"time"
 
@@ -144,9 +145,26 @@ func (r *Ring) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer r.mtx.RUnlock()
 
 	ingesterIDs := []string{}
-	for id := range r.ringDesc.Ingesters {
-		ingesterIDs = append(ingesterIDs, id)
+
+	shuffleShardParam := req.URL.Query().Get("shuffleShard")
+	if shuffleShardParam == "true" {
+		userParam := req.URL.Query().Get("user")
+		shardSizeParam := req.URL.Query().Get("shardSize")
+		shardSizeIntParam, err := strconv.Atoi(shardSizeParam)
+		if err != nil {
+			http.Error(w, "invalid shardSize parameter: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		subRing := r.shuffleShard(userParam, shardSizeIntParam, 0, time.Now())
+		for id := range subRing.ringDesc.Ingesters {
+			ingesterIDs = append(ingesterIDs, id)
+		}
+	} else {
+		for id := range r.ringDesc.Ingesters {
+			ingesterIDs = append(ingesterIDs, id)
+		}
 	}
+
 	sort.Strings(ingesterIDs)
 
 	now := time.Now()
