@@ -41,6 +41,9 @@ type ReadRing interface {
 	// to avoid memory allocation; can be nil, or created with ring.MakeBuffersForGet().
 	Get(key uint32, op Operation, bufDescs []InstanceDesc, bufHosts, bufZones []string) (ReplicationSet, error)
 
+	// A faster Get for test purposes only
+	FastGet(key uint32, op Operation, bufDescs []InstanceDesc, bufHosts, bufZones []string) (ReplicationSet, error)
+
 	// GetAllHealthy returns all healthy instances in the ring, for the given operation.
 	// This function doesn't check if the quorum is honored, so doesn't fail if the number
 	// of unhealthy instances is greater than the tolerated max unavailable.
@@ -419,6 +422,78 @@ func (r *Ring) Get(key uint32, op Operation, bufDescs []InstanceDesc, bufHosts, 
 	return ReplicationSet{
 		Instances: healthyInstances,
 		MaxErrors: maxFailure,
+	}, nil
+}
+
+// A faster Get for test purposes
+func (r *Ring) FastGet(key uint32, op Operation, bufDescs []InstanceDesc, bufHosts, bufZones []string) (ReplicationSet, error) {
+	// r.mtx.RLock()
+	// defer r.mtx.RUnlock()
+	if r.ringDesc == nil || len(r.ringTokens) == 0 {
+		return ReplicationSet{}, ErrEmptyRing
+	}
+
+	var (
+		n          = r.cfg.ReplicationFactor
+		instances  = bufDescs[:0]
+		start      = searchToken(r.ringTokens, key)
+		iterations = 0
+
+		// We use a slice instead of a map because it's faster to search within a
+		// slice than lookup a map for a very low number of items.
+		distinctHosts = bufHosts[:0]
+		distinctZones = bufZones[:0]
+	)
+	for i := start; len(distinctHosts) < n && iterations < len(r.ringTokens); i++ {
+		iterations++
+		// Wrap i around in the ring.
+		i %= len(r.ringTokens)
+		token := r.ringTokens[i]
+
+		info, ok := r.ringInstanceByToken[token]
+		if !ok {
+			// This should never happen unless a bug in the ring code.
+			return ReplicationSet{}, ErrInconsistentTokensInfo
+		}
+
+		// We want n *distinct* instances && distinct zones.
+		if util.StringsContain(distinctHosts, info.InstanceID) {
+			continue
+		}
+
+		// Ignore if the instances don't have a zone set.
+		// if r.cfg.ZoneAwarenessEnabled && info.Zone != "" {
+		if util.StringsContain(distinctZones, info.Zone) {
+			continue
+		}
+		// }
+
+		distinctHosts = append(distinctHosts, info.InstanceID)
+		instance := r.ringDesc.Ingesters[info.InstanceID]
+
+		// Check whether the replica set should be extended given we're including
+		// this instance.
+		// if op.ShouldExtendReplicaSetOnState(instance.State) {
+		// n++
+		// } else if r.cfg.ZoneAwarenessEnabled && info.Zone != "" {
+		// We should only add the zone if we are not going to extend,
+		// as we want to extend the instance in the same AZ.
+		distinctZones = append(distinctZones, info.Zone)
+		// }
+
+		instances = append(instances, instance)
+	}
+
+	// healthyInstances, maxFailure, err := r.strategy.Filter(instances, op, r.cfg.ReplicationFactor, r.cfg.HeartbeatTimeout, r.cfg.ZoneAwarenessEnabled)
+	// if err != nil {
+	// 	return ReplicationSet{}, err
+	// }
+
+	return ReplicationSet{
+		// Instances: healthyInstances,
+		// MaxErrors: maxFailure,
+		Instances: instances,
+		MaxErrors: 1,
 	}, nil
 }
 
