@@ -259,13 +259,14 @@ func NewWithStoreClientAndStrategy(cfg Config, name, key string, store kv.Client
 // Should only be used for test purposes
 func NewTestRing(cfg Config, ringDesc *Desc) (*Ring, error) {
 	ring := &Ring{
-		cfg:                 cfg,
-		ringDesc:            ringDesc,
-		ringTokens:          ringDesc.GetTokens(),
-		ringTokensByZone:    ringDesc.getTokensByZone(),
-		ringInstanceByToken: ringDesc.getTokensInfo(),
-		ringZones:           getZones(ringDesc.getTokensByZone()),
-		strategy:            NewDefaultReplicationStrategy(),
+		cfg:                  cfg,
+		ringDesc:             ringDesc,
+		ringTokens:           ringDesc.GetTokens(),
+		ringTokensByZone:     ringDesc.getTokensByZone(),
+		ringInstanceByToken:  ringDesc.getTokensInfo(),
+		ringZones:            getZones(ringDesc.getTokensByZone()),
+		strategy:             NewDefaultReplicationStrategy(),
+		shuffledSubringCache: map[subringCacheKey]*Ring{},
 	}
 	return ring, nil
 }
