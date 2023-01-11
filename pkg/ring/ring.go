@@ -255,6 +255,21 @@ func NewWithStoreClientAndStrategy(cfg Config, name, key string, store kv.Client
 	return r, nil
 }
 
+// Creates a Ring without KV client and the passed list of instances
+// Should only be used for test purposes
+func NewTestRing(cfg Config, ringDesc *Desc) (*Ring, error) {
+	ring := &Ring{
+		cfg:                 cfg,
+		ringDesc:            ringDesc,
+		ringTokens:          ringDesc.GetTokens(),
+		ringTokensByZone:    ringDesc.getTokensByZone(),
+		ringInstanceByToken: ringDesc.getTokensInfo(),
+		ringZones:           getZones(ringDesc.getTokensByZone()),
+		strategy:            NewDefaultReplicationStrategy(),
+	}
+	return ring, nil
+}
+
 func (r *Ring) starting(ctx context.Context) error {
 	// Get the initial ring state so that, as soon as the service will be running, the in-memory
 	// ring would be already populated and there's no race condition between when the service is
