@@ -308,6 +308,37 @@ func (r *Ring) loop(ctx context.Context) error {
 	return nil
 }
 
+// Testing method.
+func (r *Ring) UpdateRingState(ringDesc *Desc) {
+	// Filter out all instances belonging to excluded zones.
+	if len(r.cfg.ExcludedZones) > 0 {
+		for instanceID, instance := range ringDesc.Ingesters {
+			if util.StringsContain(r.cfg.ExcludedZones, instance.Zone) {
+				delete(ringDesc.Ingesters, instanceID)
+			}
+		}
+	}
+
+	now := time.Now()
+	ringTokens := ringDesc.GetTokens()
+	ringTokensByZone := ringDesc.getTokensByZone()
+	ringInstanceByToken := ringDesc.getTokensInfo()
+	ringZones := getZones(ringTokensByZone)
+
+	r.mtx.Lock()
+	defer r.mtx.Unlock()
+	r.ringDesc = ringDesc
+	r.ringTokens = ringTokens
+	r.ringTokensByZone = ringTokensByZone
+	r.ringInstanceByToken = ringInstanceByToken
+	r.ringZones = ringZones
+	r.lastTopologyChange = now
+	if r.shuffledSubringCache != nil {
+		// Invalidate all cached subrings.
+		r.shuffledSubringCache = make(map[subringCacheKey]*Ring)
+	}
+}
+
 func (r *Ring) updateRingState(ringDesc *Desc) {
 	r.mtx.RLock()
 	prevRing := r.ringDesc
